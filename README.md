@@ -1,4 +1,4 @@
-# Scrabble Using C++
+# Scrabble 
 # Dictionary Project
 
 ## Description
