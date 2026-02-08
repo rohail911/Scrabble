@@ -1,0 +1,391 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <map>
+#include <ctime>
+#include <cctype>
+#include <fstream>
+#include <iomanip>
+#include <random>
+
+using namespace std;
+
+const int BOARD_SIZE = 15;
+const int HAND_SIZE = 7;
+const int ALPHABET_SIZE = 26;
+
+// --- Data Structures ---
+
+enum Premium { NONE = 1, DL = 2, TL = 3, DW = 20, TW = 30 };
+
+struct TrieNode {
+    TrieNode* children[ALPHABET_SIZE];
+    bool isEndOfWord;
+};
+
+struct Player {
+    string name;
+    int score;
+    vector<char> rack;
+};
+
+struct Square {
+    char letter; 
+    Premium type; 
+};
+
+// --- Global Values ---
+map<char, int> LETTER_VALUES = {
+    {'A', 1}, {'B', 3}, {'C', 3}, {'D', 2}, {'E', 1}, {'F', 4}, {'G', 2},
+    {'H', 4}, {'I', 1}, {'J', 8}, {'K', 5}, {'L', 1}, {'M', 3}, {'N', 1},
+    {'O', 1}, {'P', 3}, {'Q', 10}, {'R', 1}, {'S', 1}, {'T', 1}, {'U', 1},
+    {'V', 4}, {'W', 4}, {'X', 8}, {'Y', 4}, {'Z', 10}, {' ', 0}
+};
+
+// --- Dictionary / Trie Functions ---
+
+TrieNode* createNode() {
+    TrieNode* newNode = new TrieNode;
+    newNode->isEndOfWord = false;
+    for (int i = 0; i < ALPHABET_SIZE; i++) newNode->children[i] = nullptr;
+    return newNode;
+}
+
+void insertWord(TrieNode* root, string key) {
+    TrieNode* curr = root;
+    for (char c : key) {
+        if (!isalpha(c)) continue;
+        int index = toupper(c) - 'A';
+        if (!curr->children[index]) curr->children[index] = createNode();
+        curr = curr->children[index];
+    }
+    curr->isEndOfWord = true;
+}
+
+bool searchWord(TrieNode* root, string key) {
+    TrieNode* curr = root;
+    for (char c : key) {
+        if (!isalpha(c)) return false;
+        int index = toupper(c) - 'A';
+        if (!curr->children[index]) return false;
+        curr = curr->children[index];
+    }
+    return (curr != nullptr && curr->isEndOfWord);
+}
+
+void loadDictionary(TrieNode* root, string filename) {
+    ifstream file(filename);
+    if (!file.is_open()) { cout << "Error: Could not open " << filename << endl; return; }
+    string word;
+    while (file >> word) insertWord(root, word);
+    cout << "Dictionary loaded." << endl;
+}
+
+// --- TileBag & Board Classes ---
+
+class TileBag {
+    vector<char> bag;
+public:
+    TileBag() {
+        // Standard Scrabble Distribution
+        addTiles('A', 9); addTiles('B', 2); addTiles('C', 2); addTiles('D', 4);
+        addTiles('E', 12); addTiles('F', 2); addTiles('G', 3); addTiles('H', 2);
+        addTiles('I', 9); addTiles('J', 1); addTiles('K', 1); addTiles('L', 4);
+        addTiles('M', 2); addTiles('N', 6); addTiles('O', 8); addTiles('P', 2);
+        addTiles('Q', 1); addTiles('R', 6); addTiles('S', 4); addTiles('T', 6);
+        addTiles('U', 4); addTiles('V', 2); addTiles('W', 2); addTiles('X', 1);
+        addTiles('Y', 2); addTiles('Z', 1);
+        
+        random_device rd; mt19937 g(rd());
+        shuffle(bag.begin(), bag.end(), g);
+    }
+    void addTiles(char c, int count) { for(int i=0; i<count; ++i) bag.push_back(c); }
+    bool isEmpty() { return bag.empty(); }
+    char draw() {
+        if (bag.empty()) return ' ';
+        char c = bag.back(); bag.pop_back(); return c;
+    }
+};
+
+class Board {
+public:
+    Square grid[BOARD_SIZE][BOARD_SIZE];
+
+    Board() {
+        for(int r=0; r<BOARD_SIZE; ++r)
+            for(int c=0; c<BOARD_SIZE; ++c) grid[r][c] = { ' ', NONE };
+        setupPremiums();
+    }
+
+    void setupPremiums() {
+        // (Simplified Setup for brevity - keeping your logic mostly)
+        int tw[8][2] = {{0,0}, {0,7}, {0,14}, {7,0}, {7,14}, {14,0}, {14,7}, {14,14}};
+        for(auto p : tw) grid[p[0]][p[1]].type = TW;
+        grid[7][7].type = DW; // Center
+        // ... (You can add the rest of your DL/TL coordinates here) ...
+    }
+
+   void print() {
+    cout << "   ";
+    for(int c=0; c<BOARD_SIZE; ++c) cout << setw(2) << c << "  ";
+    cout << endl;
+    
+    // Top Border
+    cout << "   +";
+    for(int c=0; c<BOARD_SIZE; ++c) cout << "---+";
+    cout << endl;
+
+    for(int r=0; r<BOARD_SIZE; ++r) {
+        cout << setw(2) << r << " |"; // Row Number + Left Border
+        for(int c=0; c<BOARD_SIZE; ++c) {
+            if(grid[r][c].letter != ' ') {
+                cout << " " << grid[r][c].letter << " |"; // Letter
+            } else {
+                switch(grid[r][c].type) {
+                    case TW: cout << "TW |"; break;
+                    case DW: cout << "DW |"; break;
+                    case TL: cout << "__ |"; break;
+                    case DL: cout << ".. |"; break;
+                    default: cout << "   |"; // Empty space
+                }
+            }
+        }
+        cout << endl;
+        
+        // Row Separator
+        cout << "   +";
+        for(int c=0; c<BOARD_SIZE; ++c) cout << "---+";
+        cout << endl;
+    }
+}
+
+    bool isValidPos(int r, int c) { return r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE; }
+};
+
+// --- Helper Functions ---
+
+void fillRack(Player& p, TileBag& bag) {
+    while (p.rack.size() < HAND_SIZE && !bag.isEmpty()) p.rack.push_back(bag.draw());
+}
+
+bool hasLetters(const vector<char>& rack, const string& needed) {
+    vector<char> temp = rack;
+    for(char c : needed) {
+        bool found = false;
+        for(auto it = temp.begin(); it != temp.end(); ++it) {
+            if (*it == c) { temp.erase(it); found = true; break; }
+        }
+        if (!found) return false;
+    }
+    return true;
+}
+
+// --- CORE LOGIC: Score Calculator & Validator ---
+
+// Scans for a word passing through (r,c) in a specific direction (dr, dc)
+// Returns pair: {Score, WordString}
+pair<int, string> scanWord(Board& board, int r, int c, int dr, int dc, bool isNewTile) {
+    // 1. Find the start of the word
+    int currR = r, currC = c;
+    while (board.isValidPos(currR - dr, currC - dc) && board.grid[currR - dr][currC - dc].letter != ' ') {
+        currR -= dr;
+        currC -= dc;
+    }
+
+    string formedWord = "";
+    int score = 0;
+    int wordMult = 1;
+    
+    // 2. Scan to the end
+    while (board.isValidPos(currR, currC) && (board.grid[currR][currC].letter != ' ' || (currR==r && currC==c))) {
+        char let = (currR==r && currC==c) ? board.grid[r][c].letter : board.grid[currR][currC].letter;
+        formedWord += let;
+        
+        int val = LETTER_VALUES[let];
+        
+        // Only apply premium if this is the SPECIFIC tile we just placed
+        if (currR == r && currC == c && isNewTile) {
+            Premium type = board.grid[r][c].type;
+            if (type == DL) val *= 2;
+            else if (type == TL) val *= 3;
+            else if (type == DW) wordMult *= 2;
+            else if (type == TW) wordMult *= 3;
+        }
+        
+        score += val;
+        currR += dr;
+        currC += dc;
+    }
+    
+    return {score * wordMult, formedWord};
+}
+
+// Returns > 0 if move is valid, returns -1 if invalid
+int processMove(Board& board, Player& p, TrieNode* dict, string word, int r, int c, bool horizontal, bool firstMove) {
+    string neededTiles = "";
+    vector<pair<int,int>> placedCoords;
+    int totalScore = 0;
+    bool touchesExisting = false;
+
+    // 1. Pre-Check: Bounds and Conflicts
+    int currR = r, currC = c;
+    for (char let : word) {
+        if (!board.isValidPos(currR, currC)) { cout << "Out of bounds.\n"; return -1; }
+        
+        if (board.grid[currR][currC].letter != ' ') {
+            if (board.grid[currR][currC].letter != let) { cout << "Conflict at " << currR << "," << currC << endl; return -1; }
+            touchesExisting = true;
+        } else {
+            neededTiles += let;
+            placedCoords.push_back({currR, currC});
+        }
+        if (horizontal) currC++; else currR++;
+    }
+
+    if (placedCoords.empty()) { cout << "You must place at least one tile.\n"; return -1; }
+    if (!hasLetters(p.rack, neededTiles)) { cout << "Missing tiles in rack.\n"; return -1; }
+
+    // 2. Temporarily Place Tiles on Board (to check cross-words)
+    for (int i = 0; i < placedCoords.size(); i++) {
+        board.grid[placedCoords[i].first][placedCoords[i].second].letter = neededTiles[i];
+    }
+
+    // 3. Validation
+    bool valid = true;
+    
+    // Check 1: Main Word
+    pair<int, string> mainRes = scanWord(board, r, c, horizontal?0:1, horizontal?1:0, false); // false because we calculate premiums manually for main word to be safe, or logic below
+    // Actually, let's use a cleaner approach.
+    
+    // RE-CALCULATE Main Word Score strictly
+    int mainScore = 0;
+    int mainMult = 1;
+    currR = r; currC = c;
+    for (char let : word) {
+        int val = LETTER_VALUES[let];
+        // Check if this position was just placed
+        bool justPlaced = false;
+        for(auto pc : placedCoords) if(pc.first == currR && pc.second == currC) justPlaced = true;
+
+        if (justPlaced) {
+            Premium type = board.grid[currR][currC].type;
+            if (type == DL) val *= 2;
+            else if (type == TL) val *= 3;
+            else if (type == DW) mainMult *= 2;
+            else if (type == TW) mainMult *= 3;
+        }
+        mainScore += val;
+        if(horizontal) currC++; else currR++;
+    }
+    totalScore += (mainScore * mainMult);
+    
+    if (!searchWord(dict, word)) { cout << "Main word invalid: " << word << endl; valid = false; }
+
+    // Check 2: Cross Words
+    for (auto pc : placedCoords) {
+        // If main is Horizontal, scan Vertical (1, 0). If Vert, scan Horiz (0, 1)
+        int dr = horizontal ? 1 : 0;
+        int dc = horizontal ? 0 : 1;
+        
+        pair<int, string> crossRes = scanWord(board, pc.first, pc.second, dr, dc, true);
+        if (crossRes.second.length() > 1) {
+            if (!searchWord(dict, crossRes.second)) {
+                cout << "Invalid cross-word formed: " << crossRes.second << endl;
+                valid = false;
+            } else {
+                cout << "Cross-word formed: " << crossRes.second << " (+" << crossRes.first << " pts)\n";
+                totalScore += crossRes.first;
+                touchesExisting = true; // Connection made
+            }
+        }
+    }
+
+    // Check 3: Connectivity
+    if (firstMove) {
+        bool touchesCenter = false;
+        for(auto pc : placedCoords) if(pc.first == 7 && pc.second == 7) touchesCenter = true;
+        if (!touchesCenter) { cout << "First move must touch center!\n"; valid = false; }
+    } else {
+        if (!touchesExisting) { cout << "Word must connect to existing tiles!\n"; valid = false; }
+    }
+
+    // 4. Commit or Revert
+    if (valid) {
+        // Remove tiles from rack
+        vector<char> temp = p.rack;
+        for(char c : neededTiles) {
+            for(auto it = temp.begin(); it != temp.end(); ++it) {
+                if (*it == c) { temp.erase(it); break; }
+            }
+        }
+        p.rack = temp;
+        
+        // Remove premiums (they are used now)
+        for(auto pc : placedCoords) board.grid[pc.first][pc.second].type = NONE;
+        
+        return totalScore;
+    } else {
+        // Revert board
+        for (auto pc : placedCoords) board.grid[pc.first][pc.second].letter = ' ';
+        return -1;
+    }
+}
+
+// --- Main ---
+
+int main() {
+    srand(time(0));
+    TrieNode* dict = createNode();
+    loadDictionary(dict, "dictionary.txt");
+    
+    Board board;
+    TileBag bag;
+    vector<Player> players = {{"Player 1", 0, {}}, {"Player 2", 0, {}}};
+    
+    fillRack(players[0], bag);
+    fillRack(players[1], bag);
+    
+    bool firstMove = true;
+    int currentPlayer = 0;
+    int passes = 0;
+
+    while (passes < 2) {
+        Player& p = players[currentPlayer];
+        cout << "\n============================================\n";
+        board.print();
+        cout << "Player: " << p.name << " | Score: " << p.score << "\nRack: ";
+        for(char c : p.rack) cout << c << " ";
+        cout << "\nInput: <WORD> <ROW> <COL> <H/V> (or PASS)\n> ";
+
+        string input, dir;
+        int r, c;
+        cin >> input;
+        
+        string word = "";
+        for(char c : input) word += toupper(c); // Uppercase
+
+        if (word == "PASS") {
+            passes++;
+            currentPlayer = 1 - currentPlayer;
+            continue;
+        }
+
+        cin >> r >> c >> dir;
+        bool horiz = (toupper(dir[0]) == 'H');
+
+        int turnScore = processMove(board, p, dict, word, r, c, horiz, firstMove);
+
+        if (turnScore >= 0) {
+            cout << "Success! Points: " << turnScore << endl;
+            p.score += turnScore;
+            fillRack(p, bag);
+            if (firstMove) firstMove = false;
+            passes = 0;
+            currentPlayer = 1 - currentPlayer;
+        } else {
+            cout << "Try again.\n";
+        }
+    }
+    return 0;
+}
